@@ -8,7 +8,7 @@ end_ops:
 
 ops:
   op0:
-    model: ../models/Llama-3.1-8B-Instruct/
+    model: "${MFE_MODEL_PATH}"
     max_tokens: 512
     prompt: "Please give your judegement towards this news in term of political factors."
     input_ops: []
@@ -16,7 +16,7 @@ ops:
       - op4
 
   op1:
-    model: ../models/Llama-3.1-8B-Instruct/
+    model: "${MFE_MODEL_PATH}"
     max_tokens: 512
     prompt: "Please give your judegement towards this news in term of economic factors."
     input_ops: []
@@ -24,7 +24,7 @@ ops:
       - op4
 
   op2:
-    model: ../models/Llama-3.1-8B-Instruct/
+    model: "${MFE_MODEL_PATH}"
     max_tokens: 512
     prompt: "Please give your judegement towards this news in term of social factors."
     input_ops: []
@@ -32,7 +32,7 @@ ops:
       - op4
 
   op3:
-    model: ../models/Llama-3.1-8B-Instruct/
+    model: "${MFE_MODEL_PATH}"
     max_tokens: 512
     prompt: "Please give your judegement towards this news in term of human factors."
     input_ops: []
@@ -40,7 +40,7 @@ ops:
       - op4
 
   op4:
-    model: ../models/Llama-3.1-8B-Instruct/
+    model: "${MFE_MODEL_PATH}"
     quantization: awq
     dtype: float16
     max_tokens: 512

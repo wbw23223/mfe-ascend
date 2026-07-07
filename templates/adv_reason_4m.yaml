@@ -5,7 +5,7 @@ end_ops:
 
 ops:
   op0:
-    model: ../models/Llama-3.1-8B-Instruct/
+    model: "${MFE_MODEL_PATH}"
     prompt: "Please answer the question in brief sentences."
     max_tokens: 1024
     input_ops: []
@@ -13,7 +13,7 @@ ops:
       - op1
 
   op1:
-    model: ../models/Llama-3.1-8B-Instruct/
+    model: "${MFE_MODEL_PATH}"
     prompt: "Please rethink and answer the question again."
     max_tokens: 1024
     input_ops:
@@ -22,7 +22,7 @@ ops:
       - op2
 
   op2:
-    model: ../models/Llama-3.1-8B-Instruct/
+    model: "${MFE_MODEL_PATH}"
     prompt: "Please give your final answer considering the critique before."
     max_tokens: 1024
     input_ops:
@@ -31,7 +31,7 @@ ops:
       - op3
 
   op3:
-    model: ../models/Llama-3.1-8B-Instruct/
+    model: "${MFE_MODEL_PATH}"
     prompt: "Please check your final answer considering the critique before. You should and should only put the final answer in the output."
     max_tokens: 1024
     input_ops:

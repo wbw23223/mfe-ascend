@@ -1,0 +1,4 @@
+# Intentionally does not pin torch/torch-npu/vllm/vllm-ascend.
+# The official vLLM Ascend quickstart image already contains a compatible stack.
+# Install MFE in that container with:
+#   python -m pip install -e . --no-deps

@@ -5,7 +5,7 @@ end_ops:
 
 ops:
   op0:
-    model: ../models/Llama-3.1-8B-Instruct/
+    model: "${MFE_MODEL_PATH}"
     prompt: "Please try to answer the question with Chain of Thought."
     max_tokens: 1024
     input_ops: []
@@ -13,7 +13,7 @@ ops:
       - op1
 
   op1:
-    model: ../models/Llama-3.1-8B-Instruct/ 
+    model: "${MFE_MODEL_PATH}"
     prompt: "Please give your critique and judgement towards the answer provided previously."
     max_tokens: 1024
     input_ops:
@@ -22,7 +22,7 @@ ops:
       - op2
 
   op2:
-    model: ../models/Llama-3.1-8B-Instruct/
+    model: "${MFE_MODEL_PATH}"
     prompt: "Please rethink and give your final answer considering the critique before. You should and should only put the final answer in the output. No other text should be in the output (including punctuation marks)."
     max_tokens: 1024
     input_ops:

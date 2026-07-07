@@ -132,6 +132,7 @@ def main() -> None:
     yaml_name = args.yaml if args.yaml.endswith(".yaml") else f"{args.yaml}.yaml"
 
     for name in args.datasets:
+        name = name.lower()
         if name not in PROCESSORS:
             print(f"Unknown dataset: {name}, skip.")
             continue

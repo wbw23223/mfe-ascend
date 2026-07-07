@@ -161,4 +161,10 @@ cython_debug/
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 
-data/
+# Ignore generated datasets/results by default, but keep the small GSM8K
+# parquet used by quick smoke runs so a fresh clone can run immediately.
+data/*
+!data/gsm8k/
+data/gsm8k/*
+!data/gsm8k/gsm8k.parquet
+!data/gsm8k/README.md

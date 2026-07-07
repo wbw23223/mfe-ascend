@@ -2,28 +2,17 @@
 
 from __future__ import annotations
 
-import importlib.util
 import os
-import shutil
 from typing import Iterable, Literal
+
+from mfe.runtime import resolve_accelerator
 
 AcceleratorBackend = Literal["ascend", "cuda"]
 
 
-def _module_available(name: str) -> bool:
-    return importlib.util.find_spec(name) is not None
-
-
 def get_accelerator_backend() -> AcceleratorBackend:
     """返回当前推理后端。mfe-ascend 默认使用 Ascend，也可通过 MFE_ACCELERATOR 覆盖。"""
-    value = os.environ.get("MFE_ACCELERATOR", "ascend").strip().lower()
-    if value == "auto":
-        if _module_available("torch_npu") or shutil.which("npu-smi"):
-            return "ascend"
-        return "cuda"
-    if value not in ("ascend", "cuda"):
-        raise ValueError("MFE_ACCELERATOR must be one of: ascend, cuda, auto")
-    return value  # type: ignore[return-value]
+    return resolve_accelerator()  # type: ignore[return-value]
 
 
 def _parse_visible_ids(names: Iterable[str]) -> list[int] | None:
@@ -55,6 +44,9 @@ def _torch_device_count(backend: AcceleratorBackend) -> int:
 def visible_accelerator_device_ids(backend: AcceleratorBackend | None = None) -> list[int]:
     """返回对当前进程可见的物理设备 ID。"""
     backend = backend or get_accelerator_backend()
+    explicit = _parse_visible_ids(("MFE_DEVICE_IDS",))
+    if explicit is not None:
+        return explicit
     if backend == "ascend":
         visible = _parse_visible_ids(("ASCEND_RT_VISIBLE_DEVICES", "NPU_VISIBLE_DEVICES"))
     else:
@@ -72,9 +64,11 @@ def configure_worker_device(device_id: int, backend: AcceleratorBackend | None =
     """在 worker 进程内限制 vLLM 只看到一个设备。必须在导入 vLLM 前调用。"""
     backend = backend or get_accelerator_backend()
     if backend == "ascend":
+        os.environ["MFE_DEVICE_IDS"] = str(device_id)
         os.environ["ASCEND_RT_VISIBLE_DEVICES"] = str(device_id)
         os.environ["NPU_VISIBLE_DEVICES"] = str(device_id)
         os.environ.setdefault("VLLM_TARGET_DEVICE", "npu")
+        os.environ.setdefault("VLLM_WORKER_MULTIPROC_METHOD", "spawn")
         # vllm-ascend 0.9.x 推荐 V1 Engine；新版本默认 V1 时该变量也无害。
         os.environ.setdefault("VLLM_USE_V1", "1")
         try:
@@ -86,6 +80,7 @@ def configure_worker_device(device_id: int, backend: AcceleratorBackend | None =
         except Exception:
             return
     else:
+        os.environ["MFE_DEVICE_IDS"] = str(device_id)
         os.environ["CUDA_VISIBLE_DEVICES"] = str(device_id)
 
 

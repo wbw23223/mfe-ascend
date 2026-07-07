@@ -7,7 +7,7 @@ end_ops:
 ops:
   # Step 1: Clean and segment the review into structured components
   op0:
-    model: ../models/Llama-3.1-8B-Instruct/
+    model: "${MFE_MODEL_PATH}"
     max_tokens: 1024
     prompt: |
       You are a text analysis assistant. Please structure the following product review into the following four parts. If any part is missing, write "None":
@@ -24,7 +24,7 @@ ops:
 
   # Step 2: Extract product and user-related features from the structured text
   op1:
-    model: ../models/Llama-3.1-8B-Instruct/
+    model: "${MFE_MODEL_PATH}"
     max_tokens: 1024
     prompt: |
       From the following structured user review, extract the following information:
@@ -42,7 +42,7 @@ ops:
 
   # Step 3: Generate product improvement suggestions based on user feedback
   op2:
-    model: ../models/Llama-3.1-8B-Instruct/
+    model: "${MFE_MODEL_PATH}"
     max_tokens: 1024
     prompt: |
       You are assisting a product manager. Based on the following feedback from different users, generate 3 actionable product improvement suggestions. Focus on negative feedback or constructive suggestions.

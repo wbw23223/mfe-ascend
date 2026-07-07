@@ -8,9 +8,9 @@
 - Accelerator: Huawei Ascend NPU
 - Runtime: CANN + torch-npu + vllm-ascend
 - Python: 3.10 或 3.11
-- 默认依赖组合: `vllm==0.9.0`, `vllm-ascend==0.9.0rc2`, `torch==2.5.1`, `torch-npu==2.5.1`
+- 默认安装不覆盖 `torch`、`torch-npu`、`vllm`、`vllm-ascend`；如需旧版组合，参考 `constraints/ascend-legacy-vllm09.txt`。
 
-这组依赖是为了贴合原项目已有的 `vllm==0.9.0`。如果服务器预装的是 CANN 8.5/9.0 或更新的 vLLM Ascend 镜像，应整体升级 `vllm`、`vllm-ascend`、`torch`、`torch-npu`，不要只改其中一个包。
+如果服务器预装的是 CANN 8.5/9.0 或更新的 vLLM Ascend 镜像，应优先复用镜像内已经验证过的整套 `vllm`、`vllm-ascend`、`torch`、`torch-npu`，不要只改其中一个包。
 
 ## 上机后先检查
 
@@ -34,7 +34,7 @@ python -m mfe.scripts.check_ascend_env
 ```bash
 cd /path/to/mfe-ascend
 python -m pip install -U pip
-python -m pip install -e .
+python -m pip install -e . --no-deps
 ```
 
 如果服务器已使用官方 vLLM Ascend 容器，容器内可能已装好 `torch`、`torch-npu`、`vllm`、`vllm-ascend`。这种情况下可以先检查版本，再决定是否使用 `--no-deps`：
@@ -57,7 +57,7 @@ export NPU_VISIBLE_DEVICES=0,1
 模板里的 `model` 需要改成服务器上真实可访问的模型路径。例如：
 
 ```yaml
-model: /data/models/Llama-3.1-8B-Instruct
+model: "${MFE_MODEL_PATH}"
 ```
 
 下载或准备数据后运行：
@@ -74,9 +74,9 @@ python -m mfe.scripts.client --dataset gsm8k -n 5 --yaml adv_reason_3.yaml --tes
 
 ## 代码迁移点
 
-- `mfe.util` 负责 `ascend/cuda/auto` 后端选择、设备枚举和 worker 设备绑定。
+- `mfe.util` 负责 `ascend/cuda` 后端选择、设备枚举和 worker 设备绑定。
 - `mfe.optimizers.multi_request.MultiRequestOptimizer` 不再直接调用 `torch.cuda.device_count()`。
-- `mfe.workers.worker_v.vLLMWorker` 在导入 vLLM 前设置 `ASCEND_RT_VISIBLE_DEVICES` 和 `VLLM_TARGET_DEVICE=npu`。
+- `mfe.workers.worker_v.vLLMWorker` 在导入 vLLM 前设置 `ASCEND_RT_VISIBLE_DEVICES`、`VLLM_TARGET_DEVICE=npu` 和 `VLLM_WORKER_MULTIPROC_METHOD=spawn`。
 - 项目已整理为正常包结构：源码位于 `mfe/`，命令使用 `python -m mfe.scripts...`。
 
 ## 未知项

@@ -5,7 +5,7 @@ end_ops:
 
 ops:
   op0:
-    model: ../models/Llama-3.1-8B-Instruct/
+    model: "${MFE_MODEL_PATH}"
     prompt: "Please try to answer the question with multi-step Chain of Thought."
     max_tokens: 1024
     input_ops: []
@@ -13,7 +13,7 @@ ops:
       - op1
 
   op1:
-    model: ../models/Llama-3.1-8B-Instruct/
+    model: "${MFE_MODEL_PATH}"
     prompt: "Please answer the next question based on the previous context and your own reasoning."
     max_tokens: 1024
     input_ops:

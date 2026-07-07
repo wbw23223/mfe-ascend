@@ -19,7 +19,7 @@
 export WORK=/data/mfe
 export PROJECT=$WORK/mfe-ascend
 export BUNDLE=$WORK/offline-bundle
-export MODEL_DIR=/data/models/Llama-3.1-8B-Instruct
+export MODEL_DIR=/data/mfe/models/Qwen3-0.6B
 ```
 
 没有 `/data` 权限时改成自己的目录，例如 `$HOME/mfe`。
@@ -108,14 +108,14 @@ generation_config.json
 打包：
 
 ```bash
-tar -czf offline-bundle/models/Llama-3.1-8B-Instruct.tar.gz -C /path/to/models Llama-3.1-8B-Instruct
+tar -czf offline-bundle/models/Qwen3-0.6B.tar.gz -C /path/to/models Qwen3-0.6B
 ```
 
 服务器解包：
 
 ```bash
-mkdir -p /data/models
-tar -xzf $BUNDLE/models/Llama-3.1-8B-Instruct.tar.gz -C /data/models
+mkdir -p /data/mfe/models
+tar -xzf $BUNDLE/models/Qwen3-0.6B.tar.gz -C /data/mfe/models
 ```
 
 ### 3.3 数据包
@@ -252,10 +252,12 @@ if [ -f /usr/local/Ascend/nnal/atb/set_env.sh ]; then
 fi
 
 export MFE_ACCELERATOR=ascend
+export MFE_DEVICE_IDS=0
 export ASCEND_RT_VISIBLE_DEVICES=0
 export NPU_VISIBLE_DEVICES=0
 export VLLM_TARGET_DEVICE=npu
 export VLLM_USE_V1=1
+export VLLM_WORKER_MULTIPROC_METHOD=spawn
 export HF_HUB_OFFLINE=1
 export TRANSFORMERS_OFFLINE=1
 export HF_DATASETS_OFFLINE=1
@@ -273,7 +275,7 @@ python -m pip install -e . --no-deps
 
 ```bash
 python -m pip install -U pip
-python -m pip install -e .
+python -m pip install -e . --no-deps
 ```
 
 如果完全离线：
@@ -329,7 +331,7 @@ python -m pip install -U pip
 内网 pip 源可用：
 
 ```bash
-python -m pip install -e .
+python -m pip install -e . --no-deps
 ```
 
 完全离线：
@@ -411,16 +413,17 @@ python -m mfe.scripts.client \
 
 ## 9. 修改模板模型路径
 
-把模板中的模型路径改为服务器本地模型路径：
+运行时通过 `MFE_MODEL_PATH` 或 `--model-path` 覆盖模板中的模型路径：
 
 ```bash
+export MFE_MODEL_PATH=$MODEL_DIR
 grep -R "model:" -n templates
 ```
 
 例如：
 
 ```bash
-sed -i "s#../models/Llama-3.1-8B-Instruct/#$MODEL_DIR#g" templates/adv_reason_3.yaml
+python -m mfe.scripts.check_ascend_env --model-path "$MFE_MODEL_PATH" --data-dir "$PROJECT/data"
 ```
 
 确认：
@@ -436,24 +439,16 @@ ls -lh $MODEL_DIR
 
 ```bash
 cd $PROJECT
-cat > /tmp/vllm_ascend_smoke.py <<'PY'
-from vllm import LLM, SamplingParams
-
-model = "/data/models/Llama-3.1-8B-Instruct"
-llm = LLM(model=model, dtype="bfloat16", max_model_len=2048, enforce_eager=True)
-outputs = llm.generate(["What is 1+1? Answer briefly."], SamplingParams(max_tokens=32, temperature=0.0))
-print(outputs[0].outputs[0].text)
-PY
-
 export MFE_ACCELERATOR=ascend
-export ASCEND_RT_VISIBLE_DEVICES=0
-export NPU_VISIBLE_DEVICES=0
-export VLLM_TARGET_DEVICE=npu
-export VLLM_USE_V1=1
-export HF_HUB_OFFLINE=1
-export TRANSFORMERS_OFFLINE=1
+export MFE_DEVICE_IDS=0
+export MFE_MODEL_PATH=$MODEL_DIR
 
-python /tmp/vllm_ascend_smoke.py | tee $WORK/logs/30-vllm-smoke.log
+python -m mfe.scripts.smoke_vllm \
+  --model-path "$MFE_MODEL_PATH" \
+  --prompt "What is 1+1? Answer briefly." \
+  --max-tokens 32 \
+  --device-ids "$MFE_DEVICE_IDS" \
+  --offline | tee $WORK/logs/30-vllm-smoke.log
 ```
 
 如果这里失败，不要继续跑 MFE。先根据报错处理：
@@ -470,10 +465,12 @@ python /tmp/vllm_ascend_smoke.py | tee $WORK/logs/30-vllm-smoke.log
 ```bash
 cd $PROJECT
 export MFE_ACCELERATOR=ascend
+export MFE_DEVICE_IDS=0
 export ASCEND_RT_VISIBLE_DEVICES=0
 export NPU_VISIBLE_DEVICES=0
 export VLLM_TARGET_DEVICE=npu
 export VLLM_USE_V1=1
+export VLLM_WORKER_MULTIPROC_METHOD=spawn
 export HF_HUB_OFFLINE=1
 export TRANSFORMERS_OFFLINE=1
 export HF_DATASETS_OFFLINE=1
@@ -482,6 +479,8 @@ python -m mfe.scripts.client \
   --dataset gsm8k \
   -n 2 \
   --yaml adv_reason_3.yaml \
+  --model-path "$MFE_MODEL_PATH" \
+  --device-ids "$MFE_DEVICE_IDS" \
   --send-interval 0.0 \
   -v | tee $WORK/logs/40-mfe-real-npu-1card.log
 ```
@@ -489,6 +488,7 @@ python -m mfe.scripts.client \
 成功后再扩大到多卡：
 
 ```bash
+export MFE_DEVICE_IDS=0,1
 export ASCEND_RT_VISIBLE_DEVICES=0,1
 export NPU_VISIBLE_DEVICES=0,1
 
@@ -496,6 +496,8 @@ python -m mfe.scripts.client \
   --dataset gsm8k \
   -n 10 \
   --yaml adv_reason_3.yaml \
+  --model-path "$MFE_MODEL_PATH" \
+  --device-ids "$MFE_DEVICE_IDS" \
   --send-interval 0.0 \
   -v | tee $WORK/logs/41-mfe-real-npu-2card.log
 ```
@@ -577,7 +579,7 @@ offline-bundle/
 ├── docker/
 │   └── vllm-ascend.tar
 ├── models/
-│   └── Llama-3.1-8B-Instruct.tar.gz
+│   └── Qwen3-0.6B.tar.gz
 ├── repo/
 │   ├── mfe-ascend.tar.gz
 │   └── mfe-data-gsm8k.tar.gz
@@ -597,14 +599,7 @@ offline-bundle/
 
 ## 15. 版本策略
 
-当前仓库的 `pyproject.toml` 暂时跟随原 MFE 的 `vllm==0.9.0`，并固定：
-
-```text
-torch==2.5.1
-torch-npu==2.5.1
-vllm==0.9.0
-vllm-ascend==0.9.0rc2
-```
+当前仓库的 `pyproject.toml` 默认不安装或覆盖 `torch`、`torch-npu`、`vllm`、`vllm-ascend`。旧版 vLLM 0.9 组合记录在 `constraints/ascend-legacy-vllm09.txt`。
 
 如果服务器或公司镜像已经是更新 CANN，例如 CANN 9.0，那么建议改用镜像内已验证的一整套版本，并用：
 

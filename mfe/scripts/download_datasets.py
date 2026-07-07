@@ -53,6 +53,7 @@ DATASET_CONFIGS = {
 
 
 def download_dataset(name: str, data_dir: str, limit: int | None = None) -> str:
+    name = name.lower()
     cfg = DATASET_CONFIGS[name]
     out_dir = os.path.join(data_dir, name)
     os.makedirs(out_dir, exist_ok=True)
@@ -90,6 +91,7 @@ def main() -> None:
     os.makedirs(data_dir, exist_ok=True)
 
     for name in args.datasets:
+        name = name.lower()
         if name not in DATASET_CONFIGS:
             print(f"Unknown dataset: {name}, skip.")
             continue
