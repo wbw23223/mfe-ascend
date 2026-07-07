@@ -2,22 +2,17 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import time
-import logging
-import warnings
 from typing import Any, Dict, List, Optional
+import warnings
 
 warnings.filterwarnings("ignore", category=FutureWarning, message=".*pynvml.*")
 
-from mfe.components import Query, Operator, ModelConfig, ExecuteInfo
+from mfe.components import ExecuteInfo, ModelConfig, Operator, Query
 from mfe.config import is_verbose
-from mfe.util import (
-    configure_worker_device,
-    device_label,
-    empty_device_cache,
-    get_accelerator_backend,
-)
+from mfe.util import configure_worker_device, device_label, empty_device_cache, get_accelerator_backend
 
 # 默认压低第三方库日志，避免 vLLM/Transformers 大量刷屏。
 # 可通过 MFE_VLLM_LOG_LEVEL 覆盖（DEBUG/INFO/WARNING/ERROR）。
@@ -39,8 +34,18 @@ def _model_cache_key(model_name: str) -> str:
     return model_name
 
 
+def _parse_bool(value: Any, default: Optional[bool] = None) -> Optional[bool]:
+    if value is None or value == "":
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+    return bool(value)
+
+
 class vLLMWorker:
-    def __init__(self, id: int, physical_device_id: int, cmd_queue: "Any", result_queue: "Any") -> None:
+    def __init__(self, id: int, physical_device_id: int, cmd_queue: Any, result_queue: Any) -> None:
         self.id = id
         self.backend = get_accelerator_backend()
         configure_worker_device(physical_device_id, self.backend)
@@ -51,12 +56,12 @@ class vLLMWorker:
         self.tokenizer = None
         self.cmd_queue = cmd_queue
         self.response_queue = result_queue
-        self.enforce_eager = True
+        self.enforce_eager = _parse_bool(os.environ.get("MFE_VLLM_ENFORCE_EAGER"), True)
         logging.info("vLLMWorker[%s] initialized on %s backend device %s", id, self.backend, self.device)
 
     def init_op(self, op: Operator) -> None:
-        from vllm import LLM, SamplingParams
         from transformers import AutoTokenizer
+        from vllm import LLM, SamplingParams
 
         self.op_name = op.id
         self.is_duplicate = getattr(op, "is_duplicate", False)
@@ -68,6 +73,7 @@ class vLLMWorker:
             max_tokens=cfg.max_tokens,
             min_tokens=getattr(cfg, "min_tokens", 0),
         )
+
         model_name = _model_cache_key(cfg.model_name)
         dtype = str(getattr(cfg, "dtype", "bfloat16"))
         quantization = getattr(cfg, "quantization", None)
@@ -75,16 +81,33 @@ class vLLMWorker:
         if max_model_len is not None:
             max_model_len = int(max_model_len)
         gpu_memory_utilization = os.environ.get("MFE_GPU_MEMORY_UTILIZATION") or getattr(
-            cfg, "gpu_memory_utilization", None
+            cfg,
+            "gpu_memory_utilization",
+            None,
         )
         if gpu_memory_utilization is not None:
             gpu_memory_utilization = float(gpu_memory_utilization)
-        engine_key = (model_name, dtype, quantization, max_model_len, gpu_memory_utilization, self.enforce_eager)
+
+        enable_prefix_caching = _parse_bool(
+            os.environ.get("MFE_ENABLE_PREFIX_CACHING"),
+            getattr(cfg, "enable_prefix_caching", None),
+        )
+
+        engine_key = (
+            model_name,
+            dtype,
+            quantization,
+            max_model_len,
+            gpu_memory_utilization,
+            self.enforce_eager,
+            enable_prefix_caching,
+        )
         if engine_key != self.model_key:
             if is_verbose():
                 print(
                     f"[Worker {self.id}] loading model for op={op.id}: {model_name} "
-                    f"max_model_len={max_model_len} gpu_memory_utilization={gpu_memory_utilization}",
+                    f"max_model_len={max_model_len} gpu_memory_utilization={gpu_memory_utilization} "
+                    f"prefix_cache={enable_prefix_caching}",
                     flush=True,
                 )
             if self.llm is not None:
@@ -92,8 +115,7 @@ class vLLMWorker:
                     del self.llm
                 except Exception:
                     pass
-                self.llm = None
-
+            self.llm = None
             if self.tokenizer is not None:
                 try:
                     del self.tokenizer
@@ -109,6 +131,8 @@ class vLLMWorker:
             }
             if gpu_memory_utilization is not None:
                 llm_kwargs["gpu_memory_utilization"] = gpu_memory_utilization
+            if enable_prefix_caching is not None:
+                llm_kwargs["enable_prefix_caching"] = bool(enable_prefix_caching)
             self.llm = LLM(model_name, **llm_kwargs)
             self.tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=True)
             self.model_name = model_name
@@ -132,18 +156,23 @@ class vLLMWorker:
         """init_op → 构建 batch 输入 → vLLM.generate → 返回 item/op_name/benchmark。"""
         init_start = time.perf_counter()
         self.init_op(exe_info.op)
-
-        queries: List[Query] = [
-            Query(qid, prompt) for qid, prompt in zip(exe_info.query_ids, exe_info.prompts)
-        ]
+        queries: List[Query] = [Query(qid, prompt) for qid, prompt in zip(exe_info.query_ids, exe_info.prompts)]
         init_time = time.perf_counter() - init_start
+
         prefill_start = time.perf_counter()
         messages_batch: List[Any] = []
         if self.use_chat_template:
             sys_text = "\n".join([x for x in [self.prefix, self.common_message] if x]).strip()
             for q in queries:
-                messages_batch.append([{"role": "system", "content": sys_text}, {"role": "user", "content": q.prompt}])
-            inputs: List[str] = self.tokenizer.apply_chat_template(messages_batch, tokenize=False, add_generation_prompt=False)
+                messages_batch.append([
+                    {"role": "system", "content": sys_text},
+                    {"role": "user", "content": q.prompt},
+                ])
+            inputs: List[str] = self.tokenizer.apply_chat_template(
+                messages_batch,
+                tokenize=False,
+                add_generation_prompt=False,
+            )
         else:
             inputs = []
             for q in queries:
@@ -165,7 +194,6 @@ class vLLMWorker:
             benchmark = {"init_time": 0.0, "prefill_time": 0.0, "generate_time": 0.0}
         else:
             benchmark = {"init_time": init_time, "prefill_time": 0.0, "generate_time": generate_time}
-
         return {"item": results, "op_name": self.op_name, "benchmark": benchmark}
 
     def exit(self) -> str:
@@ -206,7 +234,11 @@ class vLLMWorker:
                 qids = getattr(exe, "query_ids", [])
                 prompts = getattr(exe, "prompts", [])
                 p0 = (prompts[0][:50] + "...") if prompts and len(prompts[0]) > 50 else (prompts[0] if prompts else "")
-                print(f"[Worker {self.id}] recv execute op={op_id} query_ids={qids} n_prompts={len(prompts)} prompt0={p0!r}")
+                print(
+                    f"[Worker {self.id}] recv execute op={op_id} query_ids={qids} "
+                    f"n_prompts={len(prompts)} prompt0={p0!r}",
+                    flush=True,
+                )
             func = getattr(self, command, None)
             if not callable(func):
                 self.response_queue.put({"command": "error", "result": f"Unknown command: {command}", "elapsed_time": 0.0})
@@ -225,47 +257,28 @@ class vLLMWorker:
                 if params:
                     exe = params[0]
                     op_id = getattr(getattr(exe, "op", None), "id", "?")
-                self.response_queue.put({
-                    "command": "error",
-                    "result": {
-                        "error_type": type(e).__name__,
-                        "error_message": str(e),
-                        "op_name": op_id,
-                        "worker_id": self.id,
-                    },
-                    "elapsed_time": 0.0,
-                })
+                self.response_queue.put(
+                    {
+                        "command": "error",
+                        "result": {
+                            "error_type": type(e).__name__,
+                            "error_message": str(e),
+                            "op_name": op_id,
+                            "worker_id": self.id,
+                        },
+                        "elapsed_time": 0.0,
+                    }
+                )
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     import queue
-    from mfe.components import Query, Operator, ModelConfig, ExecuteInfo
 
     query = Query(0, "What is the capital of France?")
     model = "meta-llama/Llama-3.2-3B-Instruct"
-
-    worker = vLLMWorker(
-        id=1,
-        physical_device_id=1,
-        cmd_queue=queue.Queue(),
-        result_queue=queue.Queue(),
-    )
-    
-    config = ModelConfig(
-        model_name=model,
-        system_prompt='You are a helpful assistant.',
-    )
-
-    op = Operator(
-        id='op_0',
-        model_config=config,
-        keep_cache=False,
-    )
-    
-    exe_info = ExecuteInfo(
-        op=op,
-        query_ids=[query.id],
-        prompts=[query.prompt],
-    )
+    worker = vLLMWorker(id=1, physical_device_id=1, cmd_queue=queue.Queue(), result_queue=queue.Queue())
+    config = ModelConfig(model_name=model, system_prompt="You are a helpful assistant.")
+    op = Operator(id="op_0", model_config=config, keep_cache=False)
+    exe_info = ExecuteInfo(op=op, query_ids=[query.id], prompts=[query.prompt])
     out = worker.execute(exe_info)
     print(out)

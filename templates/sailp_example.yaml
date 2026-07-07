@@ -1,0 +1,107 @@
+# Example workflow with optional SAI-LP metadata.
+# Run with: MFE_SCHEDULER=sailp MFE_ENABLE_PREFIX_CACHING=1 python -m mfe.scripts.client ... --yaml sailp_example.yaml
+start_ops:
+  - shared_context
+end_ops:
+  - final
+ops:
+  shared_context:
+    model: "${MFE_MODEL_PATH}"
+    prompt: "Read the user question and build a shared long-context representation."
+    max_tokens: 512
+    input_ops: []
+    output_ops: [plan, retrieve_a, retrieve_b]
+    reuse_group: case_context
+    sailp:
+      cold_time: 3.0
+      data_delay: 0.05
+      reuse_benefit: 1.0
+      remote_state_delay: 0.20
+
+  plan:
+    model: "${MFE_MODEL_PATH}"
+    prompt: "Make a concise solution plan."
+    max_tokens: 512
+    input_ops: [shared_context]
+    output_ops: [draft]
+    reuse_group: case_context
+    reuse_from:
+      - op_id: shared_context
+        benefit: 1.5
+        remote_delay: 0.20
+    sailp:
+      cold_time: 2.0
+
+  retrieve_a:
+    model: "${MFE_MODEL_PATH}"
+    prompt: "Retrieve or infer evidence A."
+    max_tokens: 512
+    input_ops: [shared_context]
+    output_ops: [draft]
+    reuse_group: case_context
+    reuse_from:
+      - op_id: shared_context
+        benefit: 1.0
+        remote_delay: 0.20
+    sailp:
+      cold_time: 2.0
+
+  retrieve_b:
+    model: "${MFE_MODEL_PATH}"
+    prompt: "Retrieve or infer evidence B."
+    max_tokens: 512
+    input_ops: [shared_context]
+    output_ops: [draft]
+    reuse_group: case_context
+    reuse_from:
+      - op_id: shared_context
+        benefit: 1.0
+        remote_delay: 0.20
+    sailp:
+      cold_time: 2.0
+
+  draft:
+    model: "${MFE_MODEL_PATH}"
+    prompt: "Draft an answer using the plan and evidence."
+    max_tokens: 768
+    input_ops: [plan, retrieve_a, retrieve_b]
+    output_ops: [critique]
+    reuse_group: case_context
+    reuse_from:
+      - op_id: plan
+        benefit: 1.2
+        remote_delay: 0.15
+      - op_id: shared_context
+        benefit: 1.0
+        remote_delay: 0.20
+    sailp:
+      cold_time: 3.0
+
+  critique:
+    model: "${MFE_MODEL_PATH}"
+    prompt: "Critique the draft and list corrections."
+    max_tokens: 512
+    input_ops: [draft]
+    output_ops: [final]
+    reuse_from:
+      - op_id: draft
+        benefit: 1.0
+        remote_delay: 0.12
+    sailp:
+      cold_time: 2.0
+
+  final:
+    model: "${MFE_MODEL_PATH}"
+    prompt: "Produce the final answer only."
+    max_tokens: 512
+    input_ops: [critique]
+    output_ops: []
+    reuse_from:
+      - op_id: draft
+        benefit: 0.8
+        remote_delay: 0.12
+      - op_id: critique
+        benefit: 0.8
+        remote_delay: 0.12
+    sailp:
+      cold_time: 2.0
